@@ -174,9 +174,10 @@ class RiskParity(BaseModel):
         return weight
 
 class NNModel(BaseModel):
-    def __init__(self, asset_return, benchmark_return, configs, model, device="cuda"):
+    def __init__(self, asset_return, benchmark_return, init_weight, configs, model, device="cuda"):
         super().__init__(asset_return, configs)
         self.benchmark_return = benchmark_return
+        self.init_weight = init_weight
         self.model_name = model
         self.configs = configs
 
@@ -196,7 +197,10 @@ class NNModel(BaseModel):
         self.hyperparameters_config = self.configs["hyperparameters_config"]
         self.optimizer = None
 
-        self.loss_function = sharpe_loss_function
+        if not self.hyperparameters_config["init_weight"]:
+            self.loss_function = sharpe_loss_function
+        else:
+            self.loss_function = sharpe_loss_function_init_weight
 
     def get_data_tensor(self, start, end, data_only=False):
         input_period = self.configs["portfolio_config"]["input_period"]
@@ -204,6 +208,7 @@ class NNModel(BaseModel):
         data_list = []
         target_list = []
         benchmark_list = []
+        init_weight_list = []
         for i in range(start, end + 1):
             return_data = self.asset_return[self.data_index[i-input_period]:self.data_index[i-1]].values
             data_list.append(return_data)
@@ -211,21 +216,26 @@ class NNModel(BaseModel):
             if not data_only:
                 target = self.asset_return[self.data_index[i]:self.data_index[i]].values
                 target_benchmark = self.benchmark_return[self.data_index[i]:self.data_index[i]].values
+                init_weight = self.init_weight[self.data_index[i-1]:self.data_index[i-1]].values
                 target_list.append(target)
                 benchmark_list.append(target_benchmark)
+                init_weight_list.append(init_weight)
+
 
         data_list = np.array(data_list, dtype = float)
         if not data_only:
             target_list = np.array(target_list, dtype = float)
             benchmark_list = np.array(benchmark_list, dtype = float)
+            init_weight_list = np.array(init_weight_list, dtype = float)
 
         data_tensor = torch.tensor(data_list).to(self.device).float()
         if not data_only:
             target_tensor = torch.tensor(target_list).to(self.device).float()
             benchmark_tensor = torch.tensor(benchmark_list).to(self.device).float()
+            init_weight_tensor = torch.tensor(init_weight_list).to(self.device).float()
         
         if not data_only:
-            return data_tensor, target_tensor, benchmark_tensor
+            return data_tensor, target_tensor, benchmark_tensor, init_weight_tensor
         else:
             return data_tensor
         
@@ -240,12 +250,12 @@ class NNModel(BaseModel):
 
         print("TRAINING: ", training_start_date, training_end_date)
         print("VALIDATION: ", validation_start_date, validation_end_date)
-        data_tensor, target_tensor, benchmark_tensor = self.get_data_tensor(training_start, training_end)
-        data_tensor_valid, target_tensor_valid, benchmark_tensor_valid = self.get_data_tensor(validation_start, validation_end)
+        data_tensor, target_tensor, benchmark_tensor, init_weight_tensor = self.get_data_tensor(training_start, training_end)
+        data_tensor_valid, target_tensor_valid, benchmark_tensor_valid, init_weight_tensor_valid = self.get_data_tensor(validation_start, validation_end)
 
-        dataset= ReturnDataset(data_tensor, target_tensor, benchmark_tensor)
+        dataset= ReturnDataset(data_tensor, target_tensor, benchmark_tensor, init_weight_tensor)
         dataloader =  DataLoader(dataset, batch_size=self.hyperparameters_config["batch_size"], shuffle=False)
-        dataset_valid= ReturnDataset(data_tensor_valid, target_tensor_valid, benchmark_tensor_valid)
+        dataset_valid= ReturnDataset(data_tensor_valid, target_tensor_valid, benchmark_tensor_valid, init_weight_tensor_valid)
         dataloader_valid =  DataLoader(dataset_valid, batch_size=self.hyperparameters_config["batch_size"], shuffle=False)
         
         min_loss = np.inf
@@ -254,9 +264,9 @@ class NNModel(BaseModel):
         loss_valid_list = []
         for epoch in tqdm(range(self.hyperparameters_config["epoch"])):
             return_tensor = torch.tensor([]).to(self.device)
-            for batch_idx, (data_batch, target_batch, benchmark_batch) in enumerate(dataloader):
+            for batch_idx, (data_batch, target_batch, benchmark_batch, init_weight_benchmark_batch) in enumerate(dataloader):
                 outputs = self.model(data_batch)
-                loss, future_return = self.loss_function(outputs, target_batch, benchmark_batch)
+                loss, future_return = self.loss_function(outputs, target_batch, benchmark_batch, init_weight_benchmark_batch)
                 return_tensor = torch.cat((return_tensor, future_return), dim=0)
 
                 #self.optimizer.zero_grad()
@@ -278,9 +288,9 @@ class NNModel(BaseModel):
 
             return_list = []
             with torch.no_grad():
-                for batch_idx, (data_batch, target_batch, benchmark_batch) in enumerate(dataloader_valid):
+                for batch_idx, (data_batch, target_batch, benchmark_batch, init_weight_benchmark_batch) in enumerate(dataloader_valid):
                     outputs = self.model(data_batch)
-                    loss, future_return = self.loss_function(outputs, target_batch, benchmark_batch)
+                    loss, future_return = self.loss_function(outputs, target_batch, benchmark_batch, init_weight_benchmark_batch)
                     return_list.extend(future_return.detach().cpu().numpy())
 
             if self.hyperparameters_config["optimization_target"] == "sharpe":
@@ -318,12 +328,27 @@ class NNModel(BaseModel):
         weight = pd.DataFrame(weight)
         weight.columns = self.data_columns
         weight.index = self.data_index[start:end+1]
-    
+
+        if self.hyperparameters_config["init_weight"]:
+            init_weight = self.init_weight.loc[self.data_index[start-1:end]]
+            init_weight.index = self.data_index[start:end+1]
+            weight = weight - 1/self.assets_num + init_weight
+
         return weight
         
     
 
-def sharpe_loss_function(outputs, target_batch, benchmark_batch):
+def sharpe_loss_function(outputs, target_batch, benchmark_batch, init_weight_benchmark_batch):
+    future_return = (outputs * target_batch.squeeze()).sum(axis=1)# - benchmark_batch.squeeze()
+    sharpe = future_return.mean() / future_return.std()
+    #benchmark_return = benchmark_batch.mean(axis=1)
+    #alpha = (future_return - benchmark_return).mean()
+    #alpha = future_return.mean()
+
+    return -sharpe, future_return
+
+def sharpe_loss_function_init_weight(outputs, target_batch, benchmark_batch, init_weight_batch):
+    outputs = outputs - 1/outputs.shape[-1] + init_weight_batch.squeeze()
     future_return = (outputs * target_batch.squeeze()).sum(axis=1)# - benchmark_batch.squeeze()
     sharpe = future_return.mean() / future_return.std()
     #benchmark_return = benchmark_batch.mean(axis=1)
@@ -333,16 +358,19 @@ def sharpe_loss_function(outputs, target_batch, benchmark_batch):
     return -sharpe, future_return
 
 class ReturnDataset(Dataset):
-    def __init__(self, data, targets, benchmarks):
+    def __init__(self, data, targets, benchmarks, init_weights):
         self.data = data
         self.targets = targets
         self.benchmarks = benchmarks
+        self.init_weights= init_weights
 
     def __getitem__(self, index):
         x = self.data[index]
         y = self.targets[index]
         z = self.benchmarks[index]
-        return x, y, z
+        w = self.init_weights[index]
+
+        return x, y, z, w
     
     def __len__(self):
         return len(self.data)
