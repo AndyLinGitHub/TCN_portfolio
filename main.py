@@ -76,6 +76,6 @@ if __name__ == "__main__":
         raise NotImplementedError(config.portfolio_config["asset_pool"] + "is not a valid asset pool.")
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    allocation_model = model.NNModel(asset_return, benchmark_return, configs, configs["portfolio_config"]["model"], device)
+    allocation_model = model.NNModel(asset_return, benchmark_return, init_weight, configs, configs["portfolio_config"]["model"], device)
     result = allocation_model.vanilla_backtesting()
     utility.dump_result(configs, result)
