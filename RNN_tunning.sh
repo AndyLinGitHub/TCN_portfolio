@@ -1,5 +1,6 @@
 model="RNN"
 epoch=1024
+save_dir="RNN_result"
 
 for input_period in 20 60 120 240;
 do
@@ -14,7 +15,8 @@ do
           for dropout in 0.1 0.2 0.4;
           do
           echo === HP: $model $input_period $lr $hidden_size $num_layers $dropout ===
-          python main.py  --portfolio_config.model $model \
+          python main.py  --setting.save_dir $save_dir \
+                          --portfolio_config.model $model \
                           --portfolio_config.input_period $input_period \
                           --hyperparameters_config.epoch $epoch \
                           --hyperparameters_config.lr $lr \

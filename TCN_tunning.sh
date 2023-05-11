@@ -1,11 +1,12 @@
 model="TCN"
 epoch=1024
+save_dir="TCN_result"
 
-for input_period in 20 60 120 240;
+for input_period in 60 120 240;
 do
-  for lr in 0.001;#0.01 0.001 0.0001;
+  for lr in 0.01 0.001 0.0001;
   do
-    for optimization_target in sharpe;# std;
+    for optimization_target in sharpe std;
     do
       for hidden_size in 32 64 128;
       do
@@ -16,7 +17,8 @@ do
           for kernel_size in 2 4 8;
           do
           echo === HP: $model $input_period $lr $hidden_size $num_layers $dropout ===
-          python main.py  --portfolio_config.model $model \
+          python main.py --setting.save_dir $save_dir \
+                          --portfolio_config.model $model \
                           --portfolio_config.input_period $input_period \
                           --hyperparameters_config.epoch $epoch \
                           --hyperparameters_config.lr $lr \
