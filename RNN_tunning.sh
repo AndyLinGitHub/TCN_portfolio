@@ -1,6 +1,6 @@
 model="RNN"
 epoch=1024
-save_dir="RNN_result"
+save_dir="..\RNN_result"
 
 for input_period in 20 60 120 240;
 do
