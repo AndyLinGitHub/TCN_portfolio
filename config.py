@@ -23,7 +23,7 @@ configs = {
 
     "hyperparameters_config": {
         "lr": 0.001,
-        "batch_size": 2048, # only for dataloader
+        "batch_size": 128, # only for dataloader
         "epoch": 512,
         "optimization_target": "sharpe",
         "early_stop": 100
