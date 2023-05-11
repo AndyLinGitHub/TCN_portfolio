@@ -8,9 +8,9 @@ do
   do
     for optimization_target in sharpe std;
     do
-      for hidden_size in 32 64 128;
+      for hidden_size in 16 32 64;
       do
-        for num_layers in 4 8 16;
+        for num_layers in 2 4 8;
         do
           for dropout in 0.1 0.2 0.4;
           do
