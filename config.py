@@ -25,7 +25,8 @@ configs = {
         "lr": 0.001,
         "batch_size": 128, # only for dataloader
         "epoch": 512,
-        "optimization_target": "sharpe"
+        "optimization_target": "sharpe",
+        "early_stop": 100
     },
 
     "model_structure_config": {

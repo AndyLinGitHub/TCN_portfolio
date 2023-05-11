@@ -249,6 +249,7 @@ class NNModel(BaseModel):
         dataloader_valid =  DataLoader(dataset_valid, batch_size=self.hyperparameters_config["batch_size"], shuffle=False)
         
         min_loss = np.inf
+        early_stop_counter = 0
         loss_list = []
         loss_valid_list = []
         for epoch in tqdm(range(self.hyperparameters_config["epoch"])):
@@ -294,6 +295,12 @@ class NNModel(BaseModel):
             if loss_valid_list[-1] < min_loss:
                 min_loss = loss_valid_list[-1]
                 torch.save(self.model.state_dict(), self.model_name + '_best_params.pth')
+                early_stop_counter = 0
+            else:
+                early_stop_counter += 1
+
+            if early_stop_counter >= self.hyperparameters_config["early_stop"]:
+                break
 
             #tqdm.write("Epoch: {}, Training Loss: {}, Validation Loss: {}".format(epoch, loss_list[-1], loss_list_valid[-1]))
 
