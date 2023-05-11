@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -13,6 +14,8 @@ from tcn import TemporalConvNet
 
 seed = 42
 torch.manual_seed(seed)
+random.seed(seed)
+np.random.seed(seed)
 
 #TODO: Add fee, rebalance threshold, rebalance freq
 class BaseModel: # equal_weight

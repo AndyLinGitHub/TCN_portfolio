@@ -1,4 +1,5 @@
 import os
+import random
 import importlib
 import argparse
 from functools import reduce
@@ -12,6 +13,11 @@ import torch
 import config
 import model
 import utility
+
+seed = 42
+torch.manual_seed(seed)
+random.seed(seed)
+np.random.seed(seed)
 
 if __name__ == "__main__":
     # Parse configs
