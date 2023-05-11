@@ -6,7 +6,7 @@ for input_period in 20 60 120 240;
 do
   for lr in 0.01 0.001 0.0001;
   do
-    for optimization_target in sharpe; # std;
+    for optimization_target in sharpe std;
     do
       for hidden_size in 32 64 128;
       do
