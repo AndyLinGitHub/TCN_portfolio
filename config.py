@@ -34,21 +34,21 @@ configs = {
         "RNN": {
             "hidden_size": 32,
             "num_layers": 4,
-            "dropout": 0,
+            "dropout": 0.0,
             "bidirectional": False,
             "batch_first" : True
         },
         "LSTM": {
             'hidden_size': 32,
             "num_layers": 4,
-            "dropout": 0,
+            "dropout": 0.0,
             "bidirectional": False,
             "batch_first" : True
         },
         "GRU": {
             'hidden_size': 32,
             "num_layers": 4,
-            "dropout": 0,
+            "dropout": 0.0,
             "bidirectional": False,
             "batch_first" : True
         },
@@ -56,7 +56,7 @@ configs = {
             "hidden_size": 32,
             "num_layers": 4,
             "kernel_size": 2,
-            "dropout": 0,
+            "dropout": 0.0,
         },
         "TCN2D": {
             "hidden_size": 32,
