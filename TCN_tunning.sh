@@ -1,6 +1,6 @@
 model="TCN"
 epoch=1024
-save_dir="\TCN_result"
+save_dir="TCN_result"
 
 for input_period in 240;
 do
