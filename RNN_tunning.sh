@@ -1,18 +1,18 @@
 model="RNN"
 epoch=1024
-save_dir="\RNN_result"
+save_dir="RNN_result"
 
-for input_period in 20 60 120 240;
+for input_period in 240;
 do
-  for lr in 0.01 0.001 0.0001;
+  for lr in 0.001 0.0001;
   do
-    for optimization_target in sharpe std;
+    for optimization_target in sharpe;
     do
       for hidden_size in 16 32 64;
       do
-        for num_layers in 2 4 8;
+        for num_layers in 1 2 4;
         do
-          for dropout in 0.1 0.2 0.4;
+          for dropout in 0 0.1 0.2;
           do
           echo === HP: $model $input_period $lr $hidden_size $num_layers $dropout ===
           python main.py  --setting.save_dir $save_dir \
