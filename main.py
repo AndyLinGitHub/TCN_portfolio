@@ -2,22 +2,25 @@ import os
 import random
 import importlib
 import argparse
-from functools import reduce
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from tqdm.notebook import tqdm
 import torch
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    #torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = False
+
+set_seed(42)
 
 import config
 import model
 import utility
-
-seed = 42
-torch.manual_seed(seed)
-random.seed(seed)
-np.random.seed(seed)
 
 if __name__ == "__main__":
     # Parse configs
@@ -32,7 +35,7 @@ if __name__ == "__main__":
             keys = arg.split(".")
             utility.nested_dict_update(value, configs, keys, indent=0)
 
-    utility.print_dict(configs)
+
     #load data
     if configs["portfolio_config"]["asset_pool"] == "sp500_sector_index":
         data_dict = {}
@@ -47,15 +50,17 @@ if __name__ == "__main__":
         asset_return.columns = asset_return.columns.str.replace("Select Sector Index TR", "").str.strip()
         init_weight = pd.read_csv(os.path.join("data", "SP500_sector_weight.csv"), header=1, index_col=0).dropna().T
         init_weight.index = pd.to_datetime(init_weight.index)
-        assert (init_weight.columns.sort_values() == asset_return.columns.sort_values()).all()
+        init_weight_change = (init_weight/init_weight.shift(1))[1:] - 1
+        assert (init_weight_change.columns.sort_values() == asset_return.columns.sort_values()).all()
 
         vix_index = pd.read_csv(os.path.join("data", "CBOE_VIX.csv"), index_col=0)["CLOSE"]
         vix_index.index = pd.to_datetime(vix_index.index)
         vix_index_return = (vix_index/vix_index.shift(1))[1:] - 1
 
-        common_index = list(set(asset_return.index) & set(init_weight.index)& set(vix_index_return.index))
+        common_index = list(set(asset_return.index) & set(init_weight_change.index)& set(vix_index_return.index))
         asset_return = asset_return.loc[common_index].sort_index()
-        init_weight = init_weight.loc[common_index].sort_index()
+        benchmark_return = benchmark_return.loc[common_index].sort_index()
+        init_weight_change = init_weight_change.loc[common_index].sort_index()
         vix_index_change = vix_index_return.loc[common_index].sort_index()
 
         tbond_index = pd.read_csv(os.path.join("data", "S&P U.S. Treasury Bond Index.csv"), index_col=0).dropna()["S&P U.S. Treasury Bond Index"]
@@ -77,11 +82,19 @@ if __name__ == "__main__":
         ag_index.index = pd.to_datetime(ag_index.index)
         ag_index_return = (ag_index/ag_index.shift(1))[1:] - 1
         ag_index_return = ag_index_return.reindex(asset_return.index).fillna(0)
+
+        #vix_index_change
+        other_return = pd.concat([tbond_index_return, og_index_return, gold_index_return, ag_index_return], axis=1)
         
     else:
         raise NotImplementedError(config.portfolio_config["asset_pool"] + "is not a valid asset pool.")
     
+    pool_return =  pd.concat([tbond_index_return, asset_return], axis=1)
+    configs["setting"]["plot"] = False
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    allocation_model = model.NNModel(asset_return, benchmark_return, init_weight, configs, configs["portfolio_config"]["model"], device)
+
+    feature_list = [pool_return]
+    feature_op = [("None", 1)]
+    allocation_model = model.NNModel(pool_return, feature_list, feature_op, configs, configs["portfolio_config"]["model"], device)
     result = allocation_model.vanilla_backtesting()
     utility.dump_result(configs, result)

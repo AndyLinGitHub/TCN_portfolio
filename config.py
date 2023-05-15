@@ -26,29 +26,29 @@ configs = {
         "batch_size": 2048, # only for dataloader
         "epoch": 1024,
         "optimization_target": "sharpe",
-        "init_weight": False,
-        "early_stop": 256
+        "early_stop": 256,
+        "weight_decay": 1e-4
     },
 
     "model_structure_config": {
         "RNN": {
             "hidden_size": 32,
             "num_layers": 4,
-            "dropout": 0.1,
+            "dropout": 0,
             "bidirectional": False,
             "batch_first" : True
         },
         "LSTM": {
             'hidden_size': 32,
             "num_layers": 4,
-            "dropout": 0.1,
+            "dropout": 0,
             "bidirectional": False,
             "batch_first" : True
         },
         "GRU": {
             'hidden_size': 32,
             "num_layers": 4,
-            "dropout": 0.1,
+            "dropout": 0,
             "bidirectional": False,
             "batch_first" : True
         },
@@ -56,7 +56,13 @@ configs = {
             "hidden_size": 32,
             "num_layers": 4,
             "kernel_size": 2,
-            "dropout": 0.1
+            "dropout": 0,
+        },
+        "TCN2D": {
+            "hidden_size": 32,
+            "num_layers": 1,
+            "kernel_size": 2,
+            "dropout": 0.1,
         },
         "Markowitz": {
         },
