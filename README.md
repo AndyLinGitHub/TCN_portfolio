@@ -12,7 +12,7 @@ pip3 install torch torchvision torchaudio --extra-index-url https://download.pyt
 pip3 install -r requirements.txt
 ```
 
-### Usage
+## Usage
 ```
 python main.py --setting.save_dir "TCN_result" \
                --portfolio_config.model "TCN" \
