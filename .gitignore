@@ -1,3 +1,4 @@
 *.pth
 */result/*
 __pycache__/
+data
