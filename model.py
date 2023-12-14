@@ -1,339 +1,231 @@
 import random
+import os
+import itertools
+import pickle
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-#from tqdm.notebook import tqdm
 
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from tcn import TemporalConvNet, TemporalConvNet2D
+import utility
+from tcn import TCN
+
+if utility.is_notebook():
+    from tqdm.notebook import tqdm
+else:
+    from tqdm import tqdm
 
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    #torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
 
 set_seed(42)
-
-#TODO: Add fee, rebalance threshold, rebalance freq
-class BaseModel: # equal_weight
-    def __init__(self, asset_return, configs):
-        self.asset_return = asset_return
-        self.data_index = asset_return.index
-        self.data_columns = asset_return.columns
-        self.total_length = len(asset_return)
-        self.assets_num = len(asset_return.columns)
+    
+class BaseModel: 
+    def __init__(self, returns, configs, save_dir=""):
+        self.training_return, self.validation_return = returns
         self.configs = configs
+        self.save_dir = save_dir
 
-    def predict_weight(self, start, end):
-        weight = self.asset_return.copy()[self.data_index[start]:self.data_index[end]]
-        weight.iloc[:, :] = 1/self.assets_num
+        self.input_period = self.configs["portfolio_config"]["input_period"]
 
+        self.assets_num = self.training_return.shape[1]
+
+    def predict_weight(self, input): # equal_weight
+        weight = np.ones((input.shape[0] - self.input_period, self.assets_num)) / self.assets_num
+        weight = pd.DataFrame(weight)
+        weight.columns = input.columns
+        weight.index = input.index[self.input_period:]
+        
         return weight
 
-    # Update model's parameters
-    # Validation set for early stop and record weight
-    def training(self, training_start, training_end, validation_start, validation_end):
-        """
-        training_start_date = self.data_index[training_start]
-        training_end_date = self.data_index[training_end]
-        validation_start_date = self.data_index[validation_start]
-        validation_end_date = self.data_index[validation_end]
-        print("TRAINING: ", training_start_date, training_end_date)
-        print("VALIDATION: ", validation_start_date, validation_end_date)
-        """
+    def training(self):
         pass
 
-    # Calculate performance
-    def cal_performance(self, weight):
-        return_data = self.asset_return.loc[weight.index]
-        return_data = (return_data*weight).sum(axis=1)
-        return return_data
-
-    def walk_forward_backtesting(self):
-        input_period = self.configs["portfolio_config"]["input_period"]
-        training_period = self.configs["portfolio_config"]["walk_forward"]["training_period"]
-        validation_period = self.configs["portfolio_config"]["walk_forward"]["validation_period"]
-        testing_period = self.configs["portfolio_config"]["walk_forward"]["testing_period"]
-
-        return_series = []
-        max_period = self.total_length - 1
-        for i in range(input_period,  max_period, testing_period):
-            training_start = i
-            training_end = training_start + training_period - 1
-            validation_start = training_end + 1
-            validation_end = validation_start + validation_period - 1
-            testing_start = validation_end + 1
-            testing_end = testing_start + testing_period - 1
-            if testing_end > max_period - 1:
-                testing_end = max_period - 1
-
-            self.training(training_start, training_end, validation_start, validation_end)
-
-            testing_start_date, testing_end_date = self.data_index[testing_start], self.data_index[testing_end]
-            print("TESTING: ", testing_start_date, testing_end_date)
-            predicted_weight = self.predict_weight(testing_start, testing_end)
-            performance = self.cal_performance(predicted_weight)
-            return_series.append(performance)
-
-            if testing_end == max_period - 1:
-                break
-
-        return_series = pd.concat(return_series)
-        return return_series
-    
-    def vanilla_backtesting(self):
-        input_period = self.configs["portfolio_config"]["input_period"]
-        training_pct = self.configs["portfolio_config"]["vanilla"]["training_pct"]
-        validation_pct = self.configs["portfolio_config"]["vanilla"]["validation_pct"]
-        testing_pct = self.configs["portfolio_config"]["vanilla"]["testing_pct"]
-
-        training_start = input_period
-        training_end = training_start + int((self.total_length - input_period - 1)*training_pct)
-        validation_start = training_end + 1
-        validation_end = validation_start + int((self.total_length - input_period - 1)*validation_pct)
-        testing_start = validation_end + 1
-        testing_end = self.total_length - 1
-
-        self.training(training_start, training_end, validation_start, validation_end)
-        predicted_weight = self.predict_weight(training_start, training_end)
-        training_performance = self.cal_performance(predicted_weight)
-        predicted_weight = self.predict_weight(validation_start, validation_end)
-        validation_performance = self.cal_performance(predicted_weight)
-
-        testing_start_date, testing_end_date = self.data_index[testing_start], self.data_index[testing_end]
-        print("TESTING: ", testing_start_date, testing_end_date)
-        predicted_weight = self.predict_weight(testing_start, testing_end)
-        testing_performance = self.cal_performance(predicted_weight)
-        
-        return training_performance, validation_performance, testing_performance
-    
-
-
 class Markowitz(BaseModel):
-    def __init__(self, asset_return, configs):
-        super().__init__(asset_return, configs)
+    def __init__(self, returns, configs, save_dir=""):
+        super().__init__(returns, configs, save_dir)
+        self.training_result = None
 
-    def predict_weight(self, start, end):
-        def objective(weight, mean, cov):
-            return -weight.dot(mean) / np.sqrt(weight.dot(cov).dot(weight))
-        
-        constraints = [{"type": "eq", "fun": lambda weights: np.sum(weights) - 1}]
-        bounds = [(0, 1)] * self.assets_num
+    def objective(self, weight, mean, cov):
+        return -weight.dot(mean) / np.sqrt(weight.dot(cov).dot(weight))
+
+    def training(self):
+        # Setting for minimization.
+        constraints = [{"type": "eq", "fun": lambda weights: np.sum(np.abs(weights)) - 1}]
+        bounds = [(-1, 1)] * self.assets_num
+
+        #With positive initial weight
         initial_weight = np.ones(self.assets_num) / self.assets_num
+        mean = self.training_return.iloc[self.input_period:].mean().values
+        cov = self.training_return.iloc[self.input_period:].cov().values
+        result_p = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
 
-        weight_list = []
-        date_list = []
-        input_period = self.configs["portfolio_config"]["input_period"]
-        for i in range(start, end + 1):
-            return_data = self.asset_return[self.data_index[i-input_period]:self.data_index[i-1]]
-            mean = return_data.mean().values
-            cov = return_data.cov().values
-            result = minimize(objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
-            weight_list.append(result.x)
-            date_list.append(self.data_index[i])
+        #With negative initial weight
+        initial_weight = -np.ones(self.assets_num) / self.assets_num
+        mean = self.training_return.iloc[self.input_period:].mean().values
+        cov = self.training_return.iloc[self.input_period:].cov().values
+        result_n = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
 
-        weight = pd.DataFrame(weight_list)
-        weight.columns = self.data_columns
-        weight.index = date_list
+        #With mix initial weight
+        initial_weight = (result_p.x + result_n.x)
+        initial_weight = initial_weight/np.sum(np.abs(initial_weight))
+        mean = self.training_return.iloc[self.input_period:].mean().values
+        cov = self.training_return.iloc[self.input_period:].cov().values
+        result = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
+
+        
+        self.training_result = result.x
+        with open('training_result.pkl', 'wb') as handle:
+            pickle.dump(self.training_result, handle)
+        
+    def predict_weight(self, input):
+        weight = np.tile(self.training_result, (input.shape[0] - self.input_period, 1))
+        weight = pd.DataFrame(weight)
+        weight.columns = input.columns
+        weight.index = input.index[self.input_period:]
 
         return weight
     
-class RiskParity(BaseModel):
-    def __init__(self, asset_return, configs):
-        super().__init__(asset_return, configs)
+class RiskParity(Markowitz):
+    def __init__(self, returns, configs, save_dir=""):
+        super().__init__(returns, configs, save_dir)
+        self.training_result = None
 
-    def predict_weight(self, start, end):
-        def objective(weight, cov):
-            sigma = np.sqrt(weight.dot(cov).dot(weight))
-            rc = np.multiply(weight, cov.dot(weight)) / sigma
-            rc = rc / sigma
+    def objective(self, weight, mean, cov):
+        sigma = np.sqrt(weight.dot(cov).dot(weight))
+        rc = np.multiply(weight, cov.dot(weight)) / sigma
+        rc = rc / sigma
 
-            risk_target = 1 / weight.shape[0]
-            error = np.square(rc - risk_target).sum()
+        risk_target = 1 / weight.shape[0]
+        error = np.square(rc - risk_target).sum()
 
-            return error
-        
-        constraints = [{"type": "eq", "fun": lambda weights: np.sum(weights) - 1}]
-        bounds = [(0, 1)] * self.assets_num
-        initial_weight = np.ones(self.assets_num) / self.assets_num
-
-        weight_list = []
-        date_list = []
-        input_period = self.configs["portfolio_config"]["input_period"]
-        for i in range(start, end + 1):
-            return_data = self.asset_return[self.data_index[i-input_period]:self.data_index[i-1]]
-            cov = return_data.cov().values
-            result = minimize(objective, initial_weight, args=(cov), constraints=constraints, bounds=bounds, method="SLSQP")
-            weight_list.append(result.x)
-            date_list.append(self.data_index[i])
-
-        weight = pd.DataFrame(weight_list)
-        weight.columns = self.data_columns
-        weight.index = date_list
-
-        return weight
+        return error
 
 class NNModel(BaseModel):
-    def __init__(self, asset_return, feature_list, normalize_list, configs, model_name, device="cuda"):
-        super().__init__(asset_return, configs)
-        self.feature_list = feature_list
-        self.normalize_list = normalize_list
+    def __init__(self, returns, configs, model_name, save_dir="", device="cuda"):
+        super().__init__(returns, configs, save_dir)
         self.model_name = model_name
         self.configs = configs
         self.device = device
 
-        self.model = TimeSeriesModel(self.assets_num, self.model_name, self.configs, self.feature_list, self.device)
-        self.model = self.model.to(self.device)
-
         self.hyperparameters_config = self.configs["hyperparameters_config"]
-        self.loss_function = loss_function
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.hyperparameters_config["lr"], weight_decay=self.hyperparameters_config["weight_decay"])
+        self.model_structure_config = self.configs["model_structure_configs"][model_name]
 
+        # Get all possible combinations from the given hyperparameter tuning range.
+        self.hyperparameters_all_combinations =  self.get_all_combinations(self.hyperparameters_config)
+        self.model_structure_all_combinations =  self.get_all_combinations(self.model_structure_config)
+
+        # Prepare datasets
+        data_tensor, target_tensor = self.get_tensor(self.training_return)
+        data_tensor_valid, target_tensor_valid = self.get_tensor(self.validation_return)
+        
+        self.dataset = ReturnDataset(data_tensor, target_tensor)
+        self.dataset_valid = ReturnDataset(data_tensor_valid, target_tensor_valid)
         
 
-    def get_tensor(self, start, end):
-        input_period = self.configs["portfolio_config"]["input_period"]
+    def get_tensor(self, input):
+        feature_list = []
+        for i in range(self.input_period, input.shape[0]):
+            feature = input.iloc[i - self.input_period:i]
+            feature_list.append(feature.values)
 
-        tensor_list = []
-        for feature, normalize in zip(self.feature_list, self.normalize_list):
-            data_list = []
-            for i in range(start, end + 1):
-                feature_data = feature[self.data_index[i-input_period]:self.data_index[i-1]]
-                if normalize[0] == "rank":
-                    feature_data = feature_data.rank(axis=normalize[1], pct=True)# - 0.5
-                elif normalize[0] == "minmax":
-                    min = feature_data.min(axis=normalize[1])
-                    max = feature_data.max(axis=normalize[1])
-                    feature_data = (feature_data.sub(min, axis=normalize[1]^1)).div(max - min, axis=normalize[1]^1)# - 0.5
-                elif normalize[0] == "None":
-                    pass
-                else:
-                    raise NotImplementedError
-                
-                feature_data = feature_data.values
-                data_list.append(feature_data)
+        feature_list = np.array(feature_list, dtype = float)
+        feature_tensor = torch.tensor(feature_list).to(self.device).float()
+        target_tensor = torch.tensor(input.iloc[self.input_period:].values).to(self.device).float()
 
-            data_list = np.array(data_list, dtype = float)
-            data_tensor = torch.tensor(data_list).to(self.device).float()
-            tensor_list.append(data_tensor)
-
-        if self.model_name in ["RNN", "LSTM", "GRU", "TCN"]:
-            data_tensor = torch.cat(tensor_list, dim=2)
-        elif self.model_name == "TCN2D":
-            data_tensor = torch.stack(tensor_list, dim=1)
-
-        target_list = []
-        for i in range(start, end + 1):
-            target = self.asset_return[self.data_index[i]:self.data_index[i]].values
-            target_list.append(target)
-        target_list = np.array(target_list, dtype = float)
-        target_tensor = torch.tensor(target_list).to(self.device).float()
-
-        return data_tensor, target_tensor
+        return feature_tensor, target_tensor
         
-    def training(self, training_start, training_end, validation_start, validation_end):
-        training_start_date = self.data_index[training_start]
-        training_end_date = self.data_index[training_end]
-        validation_start_date = self.data_index[validation_start]
-        validation_end_date = self.data_index[validation_end]
-
-        print("TRAINING: ", training_start_date, training_end_date)
-        print("VALIDATION: ", validation_start_date, validation_end_date)
-        data_tensor, target_tensor = self.get_tensor(training_start, training_end)
-        data_tensor_valid, target_tensor_valid = self.get_tensor(validation_start, validation_end)
-
-        dataset= ReturnDataset(data_tensor, target_tensor)
-        dataloader =  DataLoader(dataset, batch_size=self.hyperparameters_config["batch_size"], shuffle=False, num_workers=0)
-        dataset_valid= ReturnDataset(data_tensor_valid, target_tensor_valid)
-        dataloader_valid =  DataLoader(dataset_valid, batch_size=self.hyperparameters_config["batch_size"], shuffle=False, num_workers=0)
+    def training(self):
+        print("TRAINING: ", self.training_return.index[self.input_period], "~", self.training_return.index[-1])
+        print("VALIDATION: ", self.validation_return.index[self.input_period], "~", self.validation_return.index[-1])
         
-        min_loss = np.inf
-        early_stop_counter = 0
-        loss_list = []
-        loss_valid_list = []
-        progress_bar = tqdm(range(self.hyperparameters_config["epoch"]))
-        for epoch in range(self.hyperparameters_config["epoch"]):
-            return_tensor = torch.tensor([]).to(self.device)
-            for data_tensor, target_tensor in dataloader:
-                outputs = self.model(data_tensor)
-                future_return = self.loss_function(outputs, target_tensor)
-                return_tensor = torch.cat((return_tensor, future_return), dim=0)
+        # Iterate over all possible training hyperparameter sets and model structure sets.
+        # Select the set pair with the highest validation performance.
+        all_combinations = itertools.product(self.hyperparameters_all_combinations, self.model_structure_all_combinations)
+        min_loss_ac = np.inf
+        for index, (hp_set, ms_set) in enumerate(all_combinations):
+            dataloader =  DataLoader(self.dataset, batch_size=hp_set["batch_size"], shuffle=False, num_workers=0)
+            dataloader_valid =  DataLoader(self.dataset_valid, batch_size=hp_set["batch_size"], shuffle=False, num_workers=0)
 
-            self.optimizer.zero_grad()
-            if self.hyperparameters_config["optimization_target"] == "sharpe":
-                mean = return_tensor.mean()
-                std = return_tensor.std()
-                #skew = torch.mean(torch.pow((return_tensor - mean) / std, 3))
-                #sharpe = skew
-                sharpe = - mean / std
-            elif self.hyperparameters_config["optimization_target"] == "std":
-                sharpe = return_tensor.std() * np.sqrt(252)
-            elif self.hyperparameters_config["optimization_target"] == "calmar":
-                sharpe = torch.cumprod(torch.add(return_tensor, 1), dim=0)
-                sharpe = -sharpe[-1] / (1 - sharpe/torch.cummax(sharpe, 0)[0]).max()
-            else:
-                raise NotImplementedError
-            sharpe.backward()
-            self.optimizer.step()
-
-            loss_list.append(sharpe.item())
-
-            return_list = []
-            with torch.no_grad():
-                for data_tensor, target_tensor in dataloader_valid:
-                    outputs = self.model(data_tensor)
-                    future_return = self.loss_function(outputs, target_tensor)
-                    return_list.extend(future_return.detach().cpu().numpy())
-
-            if self.hyperparameters_config["optimization_target"] == "sharpe":
-                mean = np.mean(return_list)
-                std = np.std(return_list)
-                #skew = np.mean(((np.array(return_list) - mean) / std)**3)
-                #sharpe = skew
-                sharpe = - mean / std
-
-            elif self.hyperparameters_config["optimization_target"] == "std":
-                sharpe = np.std(return_list) * np.sqrt(252)
-            elif self.hyperparameters_config["optimization_target"] == "calmar":
-                series = pd.Series(return_list)
-                sharpe = series.add(1).cumprod()
-                sharpe = -sharpe.iloc[-1] / (1 - sharpe/sharpe.cummax()).max()
-            else:
-                raise NotImplementedError
             
-            loss_valid_list.append(sharpe)
+            nn_model = TimeSeriesModel(self.assets_num, self.input_period, self.model_name, ms_set, self.device)
+            nn_model = nn_model.to(self.device)
+            optimizer = torch.optim.Adam(nn_model.parameters(), lr=hp_set["lr"], weight_decay=hp_set["weight_decay"])
 
-            if loss_valid_list[-1] < min_loss:
-                min_loss = loss_valid_list[-1]
-                torch.save(self.model.state_dict(), self.model_name + '_best_params.pth')
-                early_stop_counter = 0
-            else:
-                early_stop_counter += 1
+            progress_bar = tqdm(range(hp_set["epoch"]))
+            min_loss = np.inf
+            min_loss_info = None
+            train_loss_hist = []
+            valid_loss_hist = []
+            for epoch in range(hp_set["epoch"]):
+                train_loss, valid_loss = self.train_epoch(nn_model, optimizer, dataloader, dataloader_valid)
+                progress_bar.set_description("Epoch: {}, Training Loss: {}, Validation Loss: {}".format(epoch, train_loss, valid_loss))
+                progress_bar.update()
+                train_loss_hist.append(train_loss)
+                valid_loss_hist.append(valid_loss)
 
-            if early_stop_counter >= self.hyperparameters_config["early_stop"]:
-                break
+                if valid_loss < min_loss:
+                    min_loss = valid_loss
+                    save_info = {'epoch': epoch, 'state_dict': nn_model.state_dict(), 'valid_loss': valid_loss, 'hp_set': hp_set, 'ms_set': ms_set}
+                    min_loss_info = save_info
+                    torch.save(save_info, os.path.join(self.save_dir, self.model_name + f'_set_{index}_params.pth'))
 
-            progress_bar.set_description("Epoch: {}, Training Loss: {}, Validation Loss: {}".format(epoch, loss_list[-1], loss_valid_list[-1]))
-            progress_bar.update()
+            if min_loss < min_loss_ac:
+                min_loss_ac = min_loss
+                save_info = min_loss_info
+                save_info["train_loss_hist"] = train_loss_hist
+                save_info["valid_loss_hist"] = valid_loss_hist
+                self.best_dir = os.path.join(self.save_dir, self.model_name + f'_best_set_params.pth')
+                
+                torch.save(save_info, self.best_dir)
 
-        if self.configs["setting"]["plot"]:
-            plt.plot(loss_list)
-            plt.plot(loss_valid_list)
-            plt.show()
+    def train_epoch(self, nn_model, optimizer, dataloader, dataloader_valid):
+        return_tensor = torch.tensor([]).to(self.device)
+        for data_tensor, target_tensor in dataloader:
+            outputs = nn_model(data_tensor)
+            future_return = self.future_return(outputs, target_tensor)
+            return_tensor = torch.cat((return_tensor, future_return), dim=0)
 
-    def predict_weight(self, start, end):
-        self.model.load_state_dict(torch.load(self.model_name + '_best_params.pth'))
-        tensor_list, target_tensor = self.get_tensor(start, end)
+        optimizer.zero_grad()
+        mean = return_tensor.mean()
+        std = return_tensor.std()
+        sharpe = -mean / std
+        
+        sharpe.backward()
+        optimizer.step()
+        train_loss = sharpe.item()
+
+        return_list = []
         with torch.no_grad():
-            weight = self.model(tensor_list).cpu().numpy()
+            for data_tensor, target_tensor in dataloader_valid:
+                outputs = nn_model(data_tensor)
+                future_return = self.future_return(outputs, target_tensor)
+                return_list.extend(future_return.detach().cpu().numpy())
+
+            mean = np.mean(return_list)
+            std = np.std(return_list)
+            sharpe = -mean / std
+                
+        valid_loss = sharpe
+
+        return train_loss, valid_loss
+
+    def predict_weight(self, input, ckpt_dir):
+        checkpoint = torch.load(ckpt_dir)
+        nn_model = TimeSeriesModel(self.assets_num, self.input_period, self.model_name, checkpoint["ms_set"], self.device)
+        nn_model = nn_model.to(self.device)
+        nn_model.load_state_dict(checkpoint["state_dict"])
+        tensor_list, target_tensor = self.get_tensor(input)
+        with torch.no_grad():
+            weight = nn_model(tensor_list).cpu().numpy()
 
         weight = pd.DataFrame(weight)
         weight.columns = self.data_columns
@@ -343,10 +235,16 @@ class NNModel(BaseModel):
         
     
 
-def loss_function(outputs, target_batch):
-    future_return = (outputs * target_batch.squeeze()).sum(axis=1)
+    def future_return(self, outputs, target_batch):
+        future_return = (outputs * target_batch.squeeze()).sum(axis=1)
+    
+        return future_return
 
-    return future_return
+    def get_all_combinations(self, d):
+        all_combinations = list(itertools.product(*d.values()))
+        all_combinations = [dict(zip(d.keys(), combo)) for combo in all_combinations]
+    
+        return all_combinations
 
 class ReturnDataset(Dataset):
     def __init__(self, data_tensor, target_tensor):
@@ -354,196 +252,38 @@ class ReturnDataset(Dataset):
         self.target_tensor = target_tensor
 
     def __getitem__(self, index):
-        """
-        items = []
-        for feature in self.tensor_list:
-            items.append(feature[index])
-
-        items.append(self.target_tensor[index])
-        """
         return self.data_tensor[index], self.target_tensor[index]
     
     def __len__(self):
         return len(self.target_tensor)
 
 class TimeSeriesModel(nn.Module):
-    def __init__(self, assets_num, model_name, configs, feature_list, device):
+    def __init__(self, assets_num, input_period, model_name, ms_set, device):
         super().__init__()
         self.model_name = model_name
-        #self.model_list = nn.ModuleList()
-        input_size = 0
-        for feature in feature_list:
-            input_size += len(feature.columns)
 
-        model_structure_config = configs["model_structure_config"][model_name]
-        if model_name in ["RNN", "LSTM", "GRU"]:
-            model_class = getattr(nn, model_name)
-            self.model = model_class(input_size=input_size, **model_structure_config).to(device)
-            """
-            for feature in feature_list:
-                model = model_class(input_size=len(feature.columns), **model_structure_config).to(device)
-                self.model_list.append(model)
-            """
+        if model_name == "TCN":
+            self.ts_model = TCN(num_inputs=assets_num, **ms_set).to(device)
+            out_size = input_period - (ms_set["kernel_size"] - 1) * ms_set["num_layers"]
 
-            out_size = model_structure_config["hidden_size"]
-            if "bidirectional" in model_structure_config.keys() and model_structure_config["bidirectional"]:
-                out_size *= 2
-
-        elif model_name == "TCN":
-            self.model = TemporalConvNet(num_inputs=input_size, **model_structure_config).to(device)
-            """
-            for feature in feature_list:
-                model = TemporalConvNet(num_inputs=len(feature.columns), **model_structure_config).to(device)
-                self.model_list.append(model)
-            """
-            #out_size = model_structure_config["hidden_size"] * configs["portfolio_config"]["input_period"]
-            out_size = model_structure_config["hidden_size"]
-
-        elif model_name == "TCN2D":
-            self.model = TemporalConvNet2D(num_inputs=len(feature_list), **model_structure_config).to(device)
-            out_size = model_structure_config["hidden_size"]*assets_num
         else:
             raise NotImplementedError
         
+        self.sq_model = nn.Sequential(nn.Linear(out_size, out_size//2), nn.ReLU(), nn.Linear(out_size//2, assets_num), nn.Softmax(dim=1))
         
-
-        #self.fc = nn.Linear(out_size*len(feature_list), assets_num)
-        self.fc = nn.Linear(out_size, out_size//2)
-        self.fc2 = nn.Linear(out_size//2, assets_num)
-        self.softmax = nn.Softmax(dim=1)
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-
     def forward(self, x):
-        #outs = []
-
-        if self.model_name in ["RNN", "LSTM", "GRU"]:
-            out, _ = self.model(x)
-            """
-            for x, model in zip(xs, self.model_list):
-                out, _ = model(x)
-                outs.append(out)
-            """
-            #out = torch.cat([out[:, -1, :] for out in outs], dim=1)
-            out = out[:, -1, :]
-
-        elif self.model_name == "TCN":
-            out = self.model(torch.transpose(x, 1, 2))
+        if self.model_name == "TCN":
+            out = self.ts_model(torch.transpose(x, 1, 2))
             out = torch.transpose(out, 1, 2)
-            """
-            for x, model in zip(xs, self.model_list):
-                out = model(torch.transpose(x, 1, 2))
-                out = torch.transpose(out, 1, 2)
-                outs.append(out)
-            """
-            #out = torch.cat([out.reshape(out.shape[0], out.shape[-1]*out.shape[-2]) for out in outs], dim=1)
-            #out = torch.cat([out.mean(axis=1) for out in outs], dim=1)
-            #out = torch.cat([out[:, -1, :] for out in outs], dim=1)
-            out = out[:, -1, :]
-
-        elif self.model_name == "TCN2D":
-            out = self.model(torch.transpose(x, 2, 3))
-            out = torch.transpose(out, 2, 3)
-            out = out[:, :, -1, :]
-            out = out.flatten(start_dim=1)
+            out = torch.squeeze(out)
 
 
         else:
             raise NotImplementedError
         
-        out = self.fc(out)
-        out = self.tanh(out)
-        out = self.fc2(out)
-        #out = self.sigmoid(out)
-        out = self.tanh(out)
-        #out1 = torch.clamp(out, 0, 1)
-        #out2 = torch.clamp(out, -1, 0)
-        #out1 = self.softmax(out1)
-        #out2 = self.softmax(out2)
-        out = out / out.abs().sum(axis=1).unsqueeze(1)
-        #out = torch.sign(out) * self.softmax(out.abs())
-        #out = (out1 - out2) /2
+        out = self.sq_model(out)
+        out = (out - out.mean(axis=1).unsqueeze(1))
+        out = out/out.abs().sum(axis=1).unsqueeze(1)
 
         return out
 
-
-class RNN(nn.Module):
-    def __init__(self, configs, feature_list):
-        super().__init__()
-        model_structure_config = configs["model_structure_config"]["RNN"]
-        self.rnn = nn.RNN(input_size=assets_num, **model_structure_config)
-
-        out_size = model_structure_config["hidden_size"]
-        if model_structure_config["bidirectional"]:
-            out_size *= 2
-
-        self.fc = nn.Linear(out_size, assets_num)
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        out, _ = self.rnn(x)
-        out = self.fc(out[:, -1, :])
-        out = self.softmax(out)
-
-        return out
-
-
-class LSTM(nn.Module):
-    def __init__(self, configs, feature_list):
-        super().__init__()
-        model_structure_config = configs["model_structure_config"]["LSTM"]
-        self.lstm = nn.LSTM(input_size=assets_num, **model_structure_config)
-
-        out_size = model_structure_config["hidden_size"]
-        if model_structure_config["bidirectional"]:
-            out_size *= 2
-
-        self.fc = nn.Linear(out_size, assets_num)
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
-        out = self.softmax(out)
-
-        return out
-
-class GRU(nn.Module):
-    def __init__(self, configs, feature_list):
-        super().__init__()
-        model_structure_config = configs["model_structure_config"]["GRU"]
-        self.gru = nn.GRU(input_size=assets_num, **model_structure_config)
-
-        out_size = model_structure_config["hidden_size"]
-        if model_structure_config["bidirectional"]:
-            out_size *= 2
-
-        self.fc = nn.Linear(out_size, assets_num)
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        out, _ = self.gru(x)
-        out = self.fc(out[:, -1, :])
-        out = self.softmax(out)
-
-        return out
-
-class TCN(nn.Module):
-    def __init__(self, configs, feature_list):
-        super().__init__()
-        model_structure_config = configs["model_structure_config"]["TCN"]
-        self.tcn = TemporalConvNet(num_inputs=assets_num, **model_structure_config)
-
-        out_size = model_structure_config["hidden_size"]
-
-        self.fc = nn.Linear(out_size, assets_num)
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        out = torch.transpose(x, 1, 2)
-        out =  self.tcn(out)
-        out = torch.transpose(out, 1, 2)
-        out = self.fc(out[:, -1, :])
-        out = self.softmax(out)
-
-        return out

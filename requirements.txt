@@ -4,3 +4,4 @@ tqdm
 scipy
 matplotlib
 joblib
+jupyterlab

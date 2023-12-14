@@ -8,7 +8,7 @@ can give the model a sound and robust performance.
 ```
 conda create --name tcn_pf python=3.9
 conda activate tcn_pf
-pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 pip3 install -r requirements.txt
 ```
 

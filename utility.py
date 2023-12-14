@@ -24,6 +24,10 @@ def print_dict(d, indent=0):
         else:
             print(" " * indent + str(key) + ": " + str(value))
 
+def create_dir(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
+
 def dump_result(configs, result):
     output_dict = {}
     output_dict["configs"] = configs
@@ -46,3 +50,17 @@ def load_result(path):
         ouput_dict = pickle.load(f)
 
     return ouput_dict
+
+#credit: https://stackoverflow.com/questions/15411967/how-can-i-check-if-code-is-executed-in-the-ipython-notebook
+def is_notebook():
+    try:
+        shell = get_ipython().__class__.__name__
+        if shell == 'ZMQInteractiveShell':
+            return True
+        elif shell == 'TerminalInteractiveShell':
+            return False
+        else:
+            return False
+            
+    except NameError:
+        return False
