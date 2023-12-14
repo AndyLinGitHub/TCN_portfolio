@@ -14,14 +14,5 @@ pip3 install -r requirements.txt
 
 ## Usage
 ```
-python main.py --setting.save_dir "TCN_result" \
-               --portfolio_config.model "TCN" \
-               --portfolio_config.input_period 240 \
-               --hyperparameters_config.epoch 1024 \
-               --hyperparameters_config.lr 0.001 \
-               --hyperparameters_config.optimization_target sharpe \
-               --model_structure_config.$model.hidden_size 32 \
-               --model_structure_config.$model.num_layers 2 \
-               --model_structure_config.$model.dropout 0.1 \
-               --model_structure_config.$model.kernel_size 4
+python main.py
 ```
