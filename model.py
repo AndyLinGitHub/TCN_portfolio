@@ -30,19 +30,27 @@ set_seed(42)
     
 class BaseModel: 
     def __init__(self, returns, configs, save_dir=""):
-        self.training_return, self.validation_return = returns
+        if len(returns) == 2:
+            self.training_return, self.validation_return = returns
+            self.assets_num = self.training_return.shape[1]
+            self.training_mean, self.training_std = self.training_return.mean(), self.training_return.std()
+
+        elif len(returns) == 1:
+            self.testing_return = returns[0]
+            self.assets_num = self.testing_return.shape[1]
+            
         self.configs = configs
         self.save_dir = save_dir
 
-        self.input_period = self.configs["portfolio_config"]["input_period"]
+        self.input_length = self.configs["portfolio_config"]["input_length"]
 
-        self.assets_num = self.training_return.shape[1]
+        
 
     def predict_weight(self, input): # equal_weight
-        weight = np.ones((input.shape[0] - self.input_period, self.assets_num)) / self.assets_num
+        weight = np.ones((input.shape[0] - self.input_length, self.assets_num)) / self.assets_num
         weight = pd.DataFrame(weight)
         weight.columns = input.columns
-        weight.index = input.index[self.input_period:]
+        weight.index = input.index[self.input_length:]
         
         return weight
 
@@ -59,38 +67,39 @@ class Markowitz(BaseModel):
 
     def training(self):
         # Setting for minimization.
-        constraints = [{"type": "eq", "fun": lambda weights: np.sum(np.abs(weights)) - 1}]
+        constraints = [{"type": "eq", "fun": lambda weights: np.sum(np.abs(weights)) - 1}, {"type": "eq", "fun": lambda weights: np.sum(weights[weights>0]) + np.sum(weights[weights<0])}]
         bounds = [(-1, 1)] * self.assets_num
 
         #With positive initial weight
         initial_weight = np.ones(self.assets_num) / self.assets_num
-        mean = self.training_return.iloc[self.input_period:].mean().values
-        cov = self.training_return.iloc[self.input_period:].cov().values
+        mean = self.training_return.iloc[self.input_length:].mean().values
+        cov = self.training_return.iloc[self.input_length:].cov().values
         result_p = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
 
+        
         #With negative initial weight
         initial_weight = -np.ones(self.assets_num) / self.assets_num
-        mean = self.training_return.iloc[self.input_period:].mean().values
-        cov = self.training_return.iloc[self.input_period:].cov().values
+        mean = self.training_return.iloc[self.input_length:].mean().values
+        cov = self.training_return.iloc[self.input_length:].cov().values
         result_n = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
 
         #With mix initial weight
         initial_weight = (result_p.x + result_n.x)
         initial_weight = initial_weight/np.sum(np.abs(initial_weight))
-        mean = self.training_return.iloc[self.input_period:].mean().values
-        cov = self.training_return.iloc[self.input_period:].cov().values
+        mean = self.training_return.iloc[self.input_length:].mean().values
+        cov = self.training_return.iloc[self.input_length:].cov().values
         result = minimize(self.objective, initial_weight, args=(mean, cov), constraints=constraints, bounds=bounds, method="SLSQP")
-
+        
         
         self.training_result = result.x
-        with open('training_result.pkl', 'wb') as handle:
+        with open(os.path.join(self.save_dir, 'training_result.pkl'), 'wb') as handle:
             pickle.dump(self.training_result, handle)
         
     def predict_weight(self, input):
-        weight = np.tile(self.training_result, (input.shape[0] - self.input_period, 1))
+        weight = np.tile(self.training_result, (input.shape[0] - self.input_length, 1))
         weight = pd.DataFrame(weight)
         weight.columns = input.columns
-        weight.index = input.index[self.input_period:]
+        weight.index = input.index[self.input_length:]
 
         return weight
     
@@ -123,29 +132,27 @@ class NNModel(BaseModel):
         self.hyperparameters_all_combinations =  self.get_all_combinations(self.hyperparameters_config)
         self.model_structure_all_combinations =  self.get_all_combinations(self.model_structure_config)
 
-        # Prepare datasets
-        data_tensor, target_tensor = self.get_tensor(self.training_return)
-        data_tensor_valid, target_tensor_valid = self.get_tensor(self.validation_return)
-        
-        self.dataset = ReturnDataset(data_tensor, target_tensor)
-        self.dataset_valid = ReturnDataset(data_tensor_valid, target_tensor_valid)
-        
-
     def get_tensor(self, input):
         feature_list = []
-        for i in range(self.input_period, input.shape[0]):
-            feature = input.iloc[i - self.input_period:i]
+        for i in range(self.input_length, input.shape[0]):
+            feature = input.iloc[i - self.input_length:i] / self.training_std
             feature_list.append(feature.values)
 
         feature_list = np.array(feature_list, dtype = float)
         feature_tensor = torch.tensor(feature_list).to(self.device).float()
-        target_tensor = torch.tensor(input.iloc[self.input_period:].values).to(self.device).float()
+        target_tensor = torch.tensor(input.iloc[self.input_length:].values).to(self.device).float()
 
         return feature_tensor, target_tensor
         
     def training(self):
-        print("TRAINING: ", self.training_return.index[self.input_period], "~", self.training_return.index[-1])
-        print("VALIDATION: ", self.validation_return.index[self.input_period], "~", self.validation_return.index[-1])
+        print("TRAINING: ", self.training_return.index[self.input_length], "~", self.training_return.index[-1])
+        print("VALIDATION: ", self.validation_return.index[self.input_length], "~", self.validation_return.index[-1])
+
+        # Prepare datasets
+        data_tensor, target_tensor = self.get_tensor(self.training_return)
+        data_tensor_valid, target_tensor_valid = self.get_tensor(self.validation_return)
+        self.dataset = ReturnDataset(data_tensor, target_tensor)
+        self.dataset_valid = ReturnDataset(data_tensor_valid, target_tensor_valid)
         
         # Iterate over all possible training hyperparameter sets and model structure sets.
         # Select the set pair with the highest validation performance.
@@ -156,7 +163,7 @@ class NNModel(BaseModel):
             dataloader_valid =  DataLoader(self.dataset_valid, batch_size=hp_set["batch_size"], shuffle=False, num_workers=0)
 
             
-            nn_model = TimeSeriesModel(self.assets_num, self.input_period, self.model_name, ms_set, self.device)
+            nn_model = TimeSeriesModel(self.assets_num, self.input_length, self.model_name, ms_set, self.device)
             nn_model = nn_model.to(self.device)
             optimizer = torch.optim.Adam(nn_model.parameters(), lr=hp_set["lr"], weight_decay=hp_set["weight_decay"])
 
@@ -188,6 +195,7 @@ class NNModel(BaseModel):
                 torch.save(save_info, self.best_dir)
 
     def train_epoch(self, nn_model, optimizer, dataloader, dataloader_valid):
+        nn_model.train()
         return_tensor = torch.tensor([]).to(self.device)
         for data_tensor, target_tensor in dataloader:
             outputs = nn_model(data_tensor)
@@ -204,6 +212,7 @@ class NNModel(BaseModel):
         train_loss = sharpe.item()
 
         return_list = []
+        nn_model.eval()
         with torch.no_grad():
             for data_tensor, target_tensor in dataloader_valid:
                 outputs = nn_model(data_tensor)
@@ -220,16 +229,18 @@ class NNModel(BaseModel):
 
     def predict_weight(self, input, ckpt_dir):
         checkpoint = torch.load(ckpt_dir)
-        nn_model = TimeSeriesModel(self.assets_num, self.input_period, self.model_name, checkpoint["ms_set"], self.device)
+        nn_model = TimeSeriesModel(self.assets_num, self.input_length, self.model_name, checkpoint["ms_set"], self.device)
         nn_model = nn_model.to(self.device)
         nn_model.load_state_dict(checkpoint["state_dict"])
         tensor_list, target_tensor = self.get_tensor(input)
+
+        nn_model.eval()
         with torch.no_grad():
             weight = nn_model(tensor_list).cpu().numpy()
 
         weight = pd.DataFrame(weight)
-        weight.columns = self.data_columns
-        weight.index = self.data_index[start:end+1]
+        weight.columns = input.columns
+        weight.index = input.index[self.input_length:]
 
         return weight
         
@@ -258,13 +269,13 @@ class ReturnDataset(Dataset):
         return len(self.target_tensor)
 
 class TimeSeriesModel(nn.Module):
-    def __init__(self, assets_num, input_period, model_name, ms_set, device):
+    def __init__(self, assets_num, input_length, model_name, ms_set, device):
         super().__init__()
         self.model_name = model_name
 
         if model_name == "TCN":
             self.ts_model = TCN(num_inputs=assets_num, **ms_set).to(device)
-            out_size = input_period - (ms_set["kernel_size"] - 1) * ms_set["num_layers"]
+            out_size = input_length - (ms_set["kernel_size"] - 1) * ms_set["num_layers"]
 
         else:
             raise NotImplementedError

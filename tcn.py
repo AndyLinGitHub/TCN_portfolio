@@ -27,7 +27,7 @@ class TCN(nn.Module):
             out_channel = out_channels[i]
             conv = nn.Conv1d(in_channel, out_channel, kernel_size, stride=1, padding=0, dilation=1)
             conv.weight.data.normal_(0, 0.1)
-            layers += [conv, nn.ReLU()]
+            layers += [conv, nn.ReLU(), nn.Dropout(dropout)]
         
         self.tcn = nn.Sequential(*layers)
          
