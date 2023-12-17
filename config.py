@@ -10,18 +10,18 @@ configs = {
     }, 
 
     "hyperparameters_config": {
-        "lr": [0.001],
+        "lr": [0.001, 0.0001],
         "batch_size": [4096],
-        "epoch": [256],
+        "epoch": [1024],
         "optimization_target": ["sharpe"],
-        "weight_decay": [1e-4]
+        "weight_decay": [1e-3]
     },
 
     "model_structure_configs": {
         "TCN": {
             "num_layers": [4],
             "kernel_size": [16],
-            "dropout": [0.2],
+            "dropout": [0.5],
         },
         
         "Markowitz": {

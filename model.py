@@ -280,7 +280,7 @@ class TimeSeriesModel(nn.Module):
         else:
             raise NotImplementedError
         
-        self.sq_model = nn.Sequential(nn.Linear(out_size, out_size//2), nn.ReLU(), nn.Linear(out_size//2, assets_num), nn.Softmax(dim=1))
+        self.sq_model = nn.Sequential(nn.Linear(out_size, out_size//2), nn.ReLU(), nn.Dropout(ms_set['dropout']), nn.Linear(out_size//2, assets_num), nn.Softmax(dim=1))
         
     def forward(self, x):
         if self.model_name == "TCN":

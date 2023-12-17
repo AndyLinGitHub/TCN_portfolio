@@ -39,6 +39,9 @@ can give the model a sound and robust performance.
 - For a given hyperparameter set, the model with the best validation loss will be saved during training.
 - The hyperparameters are also tuned based on the best validation loss.
 
+## Experiment
+![image.png](https://github.com/AndyLinGitHub/TCN_portfolio/blob/main/image/learning_curve.png)
+
 ## Install project dependencies
 ```
 conda create --name tcn_pf python=3.9
