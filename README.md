@@ -48,6 +48,7 @@ pip3 install -r requirements.txt
 ```
 
 ## Usage
+Download data from [here]([https://drive.google.com/drive/folders/1CM4_1zBAXgztPX6n_D6HmavYujZSfdV4?usp=sharing](https://drive.google.com/drive/folders/1PONALk1ja2XT8NHaS-Qe9htidXbMlHl-?usp=sharing)https://drive.google.com/drive/folders/1PONALk1ja2XT8NHaS-Qe9htidXbMlHl-?usp=sharing)
 ```
 python main.py
 ```
