@@ -1,6 +1,6 @@
 # TCN_portfolio
 ## Introduction
-This project impement a model using Temporal Convolutional Networks (Lea et al., 2016, Bai et al., 2018) for predicting the weight for each asset to maximize the Sharpe
+This project impement a model using Temporal Convolutional Networks (Lea et al., 2017, Bai et al., 2018) for predicting the weight for each asset to maximize the Sharpe
 ratio at future timestamps. It is trained directly through the gradient of the Sharpe ratio (Zhang et al., 2020) calculated from the predicted portfolio weights, which
 can give the model a sound and robust performance. 
 
