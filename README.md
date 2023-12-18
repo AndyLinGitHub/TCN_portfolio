@@ -40,6 +40,9 @@ can give the model a sound and robust performance.
 - The hyperparameters are also tuned based on the best validation loss.
 
 ## Experiment
+- Overall testing interval: 2023-01-01 00:01:00 ~ 2023-11-30 23:59:00
+- 1 minute Sharp ratio: 0.003
+- Average learning curve among all testing intervals:
 ![image.png](https://github.com/AndyLinGitHub/TCN_portfolio/blob/main/image/learning_curve.png)
 
 ## Install project dependencies
