@@ -57,7 +57,9 @@ pip3 install -r requirements.txt
 ```
 
 ## Usage
-[Download data](https://drive.google.com/drive/folders/1PONALk1ja2XT8NHaS-Qe9htidXbMlHl-?usp=drive_link)
+- Clone the repository.
+- Download data from [here](https://drive.google.com/drive/folders/1PONALk1ja2XT8NHaS-Qe9htidXbMlHl-?usp=drive_link) and move the data folder into the repository.
 ```
-python main.py
+python main.py //Training
+python testing.py //Testing
 ```
