@@ -41,7 +41,8 @@ can give the model a sound and robust performance.
 
 ## Experiment
 - Overall testing interval: 2023-01-01 00:01:00 ~ 2023-11-30 23:59:00
-- 1 minute Sharp ratio: 0.003
+- Baseline: Modern Portfolio Theory (MPT) with the same weight constraints and optimization intervals.
+- 1 minute Sharp ratio: 0.003 (TCN), 0.00004 (MPT) 
 ![image.png](https://github.com/AndyLinGitHub/TCN_portfolio/blob/main/image/cumulative_return.png)
 
 - Average learning curve among all testing intervals:
