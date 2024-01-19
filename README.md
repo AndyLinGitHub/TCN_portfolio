@@ -24,7 +24,7 @@ can give the model a sound and robust performance.
 - Given $N$ assets, at timestamp $\tau$, we takes the return time series ($N \times L$) from $\tau$ to $\tau - L + 1$ as the model input, uses the model to predict the optimal asset weight $w_{\tau}$ ($N \times 1$), and holds or shorts the assets with this weight to timestamp $\tau + 1$.
 - Here, we focus on having a long-short portfolio that is dollar-neutral. Therefore, the weight predicted needs to satisfy the following constraint:
     - ${\displaystyle\sum_{i=1}^{N}} |{w_{\tau i}|} = 1, -1 \le w_{\tau i} \le 1$
-    - ${\displaystyle\sum_{i=1}^{N}} \max(w_{\tau i}, 0) + \sum_{i=1}^{N} \min(w_{\tau i}, 0) = 0$
+    - ${\displaystyle\sum_{i=1}^{N}} \max(w_{\tau i}, 0) + {\displaystyle\sum_{i=1}^{N}} \min(w_{\tau i}, 0) = 0$
 
 ![image.png](https://github.com/AndyLinGitHub/TCN_portfolio/blob/main/image/model.png)
 
