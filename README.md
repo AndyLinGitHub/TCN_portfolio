@@ -40,9 +40,9 @@ can give the model a sound and robust performance.
 - The hyperparameters are also tuned based on the best validation loss.
 
 ## Experiment
-- Overall testing interval: 2023-01-01 00:01:00 ~ 2023-11-30 23:59:00
+- Overall testing interval: 2024-07-01 00:01:00 ~ 2024-10-27 23:59:00
 - Baseline: Modern Portfolio Theory (MPT) with the same weight constraints and optimization intervals.
-- 1 minute Sharpe ratio: 0.003 (TCN), 0.00004 (MPT) 
+- 1 minute Sharpe ratio: 0.0042 (TCN), -0.0019 (MPT) 
 ![image.png](https://github.com/AndyLinGitHub/TCN_portfolio/blob/main/image/cumulative_return.png)
 
 - Average learning curve among all testing intervals:
