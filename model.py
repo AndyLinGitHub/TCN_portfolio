@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 import utility
-from tcn import TCN
+from tcn import TCN, TCN3D
 
 if utility.is_notebook():
     from tqdm.notebook import tqdm
@@ -133,14 +133,40 @@ class NNModel(BaseModel):
         self.model_structure_all_combinations =  self.get_all_combinations(self.model_structure_config)
 
     def get_tensor(self, input):
-        feature_list = []
-        for i in range(self.input_length, input.shape[0]):
-            feature = input.iloc[i - self.input_length:i] / self.training_std
-            feature_list.append(feature.values)
+        if self.model_name == "TCN":
+            feature_list = []
+            for i in range(self.input_length, input.shape[0]):
+                feature = input.iloc[i - self.input_length:i] / self.training_std
+                feature_list.append(feature.values)
 
-        feature_list = np.array(feature_list, dtype = float)
-        feature_tensor = torch.tensor(feature_list).to(self.device).float()
-        target_tensor = torch.tensor(input.iloc[self.input_length:].values).to(self.device).float()
+            feature_list = np.array(feature_list, dtype = np.float32)
+            feature_tensor = torch.tensor(feature_list).to(self.device).float()
+
+        elif self.model_name == "TCN3D":
+            feature_list = []
+            for i in range(self.input_length, input.shape[0]):
+                feature = input.iloc[i - self.input_length:i].values
+                n_assets = feature.shape[1]
+                n_time = feature.shape[0]
+                pairwise_returns = np.zeros((n_assets, n_time, n_assets - 1))
+
+                for j in range(n_assets):
+                    k_indices = [k for k in range(n_assets) if k != j]
+                    pairwise_return_j = np.log(feature[:, j:j + 1] / feature[:, k_indices])
+                    pairwise_return_j[np.isinf(pairwise_return_j)] = 0
+                    pairwise_return_j = pairwise_return_j / pairwise_return_j.std(axis=1, keepdims=True)
+                    pairwise_return_j[np.isinf(pairwise_return_j)] = 0
+                    pairwise_returns[j] = pairwise_return_j
+
+                feature_list.append(pairwise_returns)
+
+            feature_list = np.array(feature_list, dtype = np.float32)
+            feature_tensor = torch.tensor(feature_list).to(self.device).float()
+
+        else:
+            raise NotImplementedError
+
+        target_tensor = torch.tensor(input.iloc[self.input_length:].values.astype(np.float32)).to(self.device).float()
 
         return feature_tensor, target_tensor
         
@@ -277,6 +303,10 @@ class TimeSeriesModel(nn.Module):
             self.ts_model = TCN(num_inputs=assets_num, **ms_set).to(device)
             out_size = input_length - (ms_set["kernel_size"] - 1) * ms_set["num_layers"]
 
+        elif model_name == "TCN3D":
+            self.ts_model = TCN3D(num_inputs=assets_num, input_length=input_length, **ms_set).to(device)
+            out_size = input_length - (ms_set["kernel_size"] - 1) * ms_set["num_layers"]
+
         else:
             raise NotImplementedError
         
@@ -284,10 +314,16 @@ class TimeSeriesModel(nn.Module):
         
     def forward(self, x):
         if self.model_name == "TCN":
-            out = self.ts_model(torch.transpose(x, 1, 2))
+            x = torch.transpose(x, 1, 2)
+            out = self.ts_model(x)
             out = torch.transpose(out, 1, 2)
             out = torch.squeeze(out)
 
+        elif self.model_name == "TCN3D":
+            x = torch.transpose(x, 2, 3)
+            out = self.ts_model(x)
+            out = torch.transpose(out, 1, 2)
+            out = torch.squeeze(out)
 
         else:
             raise NotImplementedError

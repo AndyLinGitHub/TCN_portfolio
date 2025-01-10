@@ -4,7 +4,7 @@ configs = {
         "plot": False,
     },
     "portfolio_config": {
-        "model": "TCN",
+        "model": "TCN3D",
         "input_length": 240,
         "fee": 0,
     }, 
@@ -19,6 +19,12 @@ configs = {
 
     "model_structure_configs": {
         "TCN": {
+            "num_layers": [4],
+            "kernel_size": [16],
+            "dropout": [0.5],
+        },
+
+        "TCN3D": {
             "num_layers": [4],
             "kernel_size": [16],
             "dropout": [0.5],

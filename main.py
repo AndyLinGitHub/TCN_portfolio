@@ -19,9 +19,16 @@ if utility.is_notebook():
 else:
     from tqdm import tqdm
 
+device = "mps"
 def set_seed(seed):
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    if device == "cuda":
+        torch.cuda.manual_seed_all(seed)
+    elif device == "mps":
+        torch.mps.manual_seed(seed)
+    else:
+        raise NotImplementedError
+
     np.random.seed(seed)
     random.seed(seed)
 
@@ -86,6 +93,7 @@ model_out_dir_root = os.path.join(configs["setting"]["save_dir"], configs["portf
 utility.create_dir(model_out_dir_root)
 
 input_length = configs["portfolio_config"]["input_length"]
+model_type = configs["portfolio_config"]["model"]
 input_td = pd.Timedelta(f"{input_length}min")
 for setting in setting_list:
     #Prepare data for each week
@@ -97,7 +105,7 @@ for setting in setting_list:
 
     model_out_dir = os.path.join(model_out_dir_root, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""))
     utility.create_dir(model_out_dir)
-    nn_model = model.NNModel(data_list, configs, "TCN", model_out_dir)
+    nn_model = model.NNModel(data_list, configs, model_type, model_out_dir, device)
     nn_model.training()
 
 

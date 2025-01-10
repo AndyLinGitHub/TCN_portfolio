@@ -33,3 +33,19 @@ class TCN(nn.Module):
          
     def forward(self, x):
         return self.tcn(x)
+
+class TCN3D(nn.Module):
+    def __init__(self, num_inputs, input_length, num_layers, kernel_size=2, dropout=0.2):
+        super(TCN3D, self).__init__()
+        in_channel = num_inputs
+        out_channel = num_inputs
+        conv = nn.Conv2d(in_channel, out_channel, kernel_size=(num_inputs-1, 1))
+        conv.weight.data.normal_(0, 0.1)
+        layers = [conv, nn.ReLU(), nn.Dropout(dropout)]
+        
+        self.conv_cs = nn.Sequential(*layers)
+        self.tcn_ts = TCN(num_inputs, num_layers, kernel_size, dropout)
+         
+    def forward(self, x):
+        x = self.conv_cs(x).squeeze()
+        return self.tcn_ts(x)
