@@ -19,7 +19,7 @@ if utility.is_notebook():
 else:
     from tqdm import tqdm
 
-device = "mps"
+device = "cuda"
 def set_seed(seed):
     torch.manual_seed(seed)
     if device == "cuda":
@@ -57,16 +57,17 @@ with open(os.path.join("data", "weekly_crypto_top20.pkl"), 'rb') as f:
 stables = {"BUSD", "USDC", "UST", "DAI", "TUSD", "USDT"}
 cexs = {"FTT", "BNB", "HT", "OKB", "CRO", "LEO"}
 not_listed = {"WBTC", "TON"}
-name_changed = {"SHIB": "1000SHIB"}
+name_changed = {}
 remove = stables | cexs | not_listed
 setting_list = []
-start_date = "2023-01-01"
+start_date = "2024-07-01"
+end_date = "2024-12-31"
 
 for k, v in weekly_crypto_top20.items():
     valid_tickers = set(v) - remove
     t = pd.to_datetime(k) + pd.Timedelta("1min")
     listed = list(binance_swaps_return.loc[t].dropna().index) # Check whether a swap is listed on Binance at the start of the week.
-    if t <= pd.to_datetime(start_date):
+    if t <= pd.to_datetime(start_date) or t >= pd.to_datetime(end_date):
         continue
     valid_tickers_top10 = []
     for ticker in v:

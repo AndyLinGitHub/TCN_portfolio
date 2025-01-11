@@ -10,7 +10,7 @@ configs = {
     }, 
 
     "hyperparameters_config": {
-        "lr": [0.001, 0.0001],
+        "lr": [0.001],
         "batch_size": [4096],
         "epoch": [1024],
         "optimization_target": ["sharpe"],
@@ -19,13 +19,13 @@ configs = {
 
     "model_structure_configs": {
         "TCN": {
-            "num_layers": [4],
+            "num_layers": [3],
             "kernel_size": [16],
             "dropout": [0.5],
         },
 
         "TCN3D": {
-            "num_layers": [4],
+            "num_layers": [3],
             "kernel_size": [16],
             "dropout": [0.5],
         },

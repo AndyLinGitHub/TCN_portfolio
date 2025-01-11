@@ -139,7 +139,7 @@ class NNModel(BaseModel):
                 feature = input.iloc[i - self.input_length:i] / self.training_std
                 feature_list.append(feature.values)
 
-            feature_list = np.array(feature_list, dtype = np.float32)
+            feature_list = np.array(feature_list, dtype = float)
             feature_tensor = torch.tensor(feature_list).to(self.device).float()
 
         elif self.model_name == "TCN3D":
@@ -152,7 +152,7 @@ class NNModel(BaseModel):
 
                 for j in range(n_assets):
                     k_indices = [k for k in range(n_assets) if k != j]
-                    pairwise_return_j = np.log(feature[:, j:j + 1] / feature[:, k_indices])
+                    pairwise_return_j = np.log((feature[:, j:j + 1] + 1) / (feature[:, k_indices] + 1))
                     pairwise_return_j[np.isinf(pairwise_return_j)] = 0
                     pairwise_return_j = pairwise_return_j / pairwise_return_j.std(axis=1, keepdims=True)
                     pairwise_return_j[np.isinf(pairwise_return_j)] = 0
@@ -160,13 +160,13 @@ class NNModel(BaseModel):
 
                 feature_list.append(pairwise_returns)
 
-            feature_list = np.array(feature_list, dtype = np.float32)
+            feature_list = np.array(feature_list, dtype = float)
             feature_tensor = torch.tensor(feature_list).to(self.device).float()
 
         else:
             raise NotImplementedError
 
-        target_tensor = torch.tensor(input.iloc[self.input_length:].values.astype(np.float32)).to(self.device).float()
+        target_tensor = torch.tensor(input.iloc[self.input_length:].values.astype(float)).to(self.device).float()
 
         return feature_tensor, target_tensor
         

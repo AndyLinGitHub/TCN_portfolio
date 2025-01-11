@@ -44,15 +44,16 @@ with open(os.path.join("data", "weekly_crypto_top20.pkl"), 'rb') as f:
 stables = {"BUSD", "USDC", "UST", "DAI", "TUSD", "USDT"}
 cexs = {"FTT", "BNB", "HT", "OKB", "CRO", "LEO"}
 not_listed = {"WBTC", "TON"}
-name_changed = {"SHIB": "1000SHIB"}
+name_changed = {}
 remove = stables | cexs | not_listed
 setting_list = []
-start_date = "2023-01-01"
+start_date = "2024-07-01"
+end_date = "2024-10-27"
 
 for k, v in weekly_crypto_top20.items():
     valid_tickers = set(v) - remove
     t = pd.to_datetime(k) + pd.Timedelta("1min")
-    if t <= pd.to_datetime(start_date):
+    if t <= pd.to_datetime(start_date) or t >= pd.to_datetime(end_date):
         continue
     listed = list(binance_swaps_return.loc[t].dropna().index) # Check whether a swap is listed on Binance at the start of the week.
     
@@ -75,6 +76,7 @@ tcn_result_dir = sys.argv[1]
 MPT_result_dir =sys.argv[2]
 
 input_length = configs["portfolio_config"]["input_length"]
+model_type = configs["portfolio_config"]["model"]
 input_td = pd.Timedelta(f"{input_length}min")
 testing_return_series_tcn = pd.Series()
 testing_return_series_mpt = pd.Series()
@@ -89,10 +91,10 @@ for setting in tqdm(setting_list):
     testing_return = binance_swaps_return[tickers].loc[testing_period[0]-input_td:testing_period[1]].fillna(0)
     data_list = [training_return, validation_return]
 
-    tcn_model_dir = os.path.join(tcn_result_dir, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""), "TCN_best_set_params.pth")
+    tcn_model_dir = os.path.join(tcn_result_dir, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""), f"{model_type}_best_set_params.pth")
     mpt_dir = os.path.join(MPT_result_dir, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""), "training_result.pkl")
 
-    nn_model = model.NNModel(data_list, configs, "TCN")
+    nn_model = model.NNModel(data_list, configs, model_type)
     weight_tcn = nn_model.predict_weight(testing_return, tcn_model_dir)
     
     with open(mpt_dir, "rb") as input_file:
@@ -124,7 +126,7 @@ vl_lists = []
 
 for setting in setting_list:
     training_period, validation_period, testing_period, tickers = setting
-    tcn_model_dir = os.path.join(tcn_result_dir, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""), "TCN_best_set_params.pth")
+    tcn_model_dir = os.path.join(tcn_result_dir, testing_period[0].isoformat().replace(":", "") + "_" + testing_period[1].isoformat().replace(":", ""), f"{model_type}_best_set_params.pth")
     checkpoint = torch.load(tcn_model_dir)
     tl_lists.append(checkpoint["train_loss_hist"])
     vl_lists.append(checkpoint["valid_loss_hist"])
